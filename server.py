@@ -15,7 +15,7 @@ import json, sys
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 7778
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 HITS = []
 
 TOOL_PAGE = r"""<!DOCTYPE html>
